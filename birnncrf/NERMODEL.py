@@ -211,5 +211,116 @@ def train(corpus, vocab_dict="./vocab_dict.json",val_split=0.05, test_split = 0.
     logger.info("training completed, test loss:{:.2f}".format(best_val_loss))
     return model
 
+def predict(model,sentences, embedding_dim=EMBEDDING_DIM,hidden_dim=HIDDEN_DIM,max_sequence_length=100,device=None):
+    model,word_to_ix,tag_to_ix = load_model(model,embedding_dim,hidden_dim,device)
+    ix_to_tag = {}
+    for k,v in tag_to_ix.items():
+        ix_to_tag[v] = k
+    OOV_IDX = word_to_ix[OOV]
+    device = running_device(device)
+    sent_tensor = []
+    for sentence in sentences:
+        vec = [word_to_ix.get(s,OOV_IDX) for s in sentence[:max_sequence_length]]
+        vec = vec+[PAD_VOCAB_IDX]*(max_sequence_length-len(vec))
+        sent_tensor.append(vec)
+
+    sent_tensor = np.asarray(sent_tensor)
+    sent_tensor = torch.from_numpy(sent_tensor).to(device)
+    with torch.no_grad():
+        scores, tags = model(sent_tensor)
+        res = list(map(lambda sent,tag,score:{"ner":__get_entities_from_tags(sent,tag,ix_to_tag,word_to_ix,max_sequence_length),
+                                              "score":score.item()},sentences,tags,scores))
+    return res
+
+
+def predict_on_excel(file,col,model="../data/ner_model.pt",format_entities = False):
+    df = pd.read_excel(file,dtype={col:str})
+    df = df.dropna(subset=[col]).drop_duplicates([col])
+    sentences = df[col].to_list()
+    res = predict(model,sentences)
+    df["ner"] = res
+    if format_entities:
+        for e_type in ENTITY_TYPES:
+            df[e_type] = df.ner.apply(lambda x:",".join(map(lambda ev:ev["entity"],filter(lambda e:e["e_type"]==e_type,x['ner']))))
+            df[f"{e_type}_revised"] = df[e_type]
+    df.to_excel(file,index=False)
+
+def evaluate_metrics_on_ner(file,save_fp_json=True,col="question"):
+    df = pd.read_excel(file,index=False,keep_default_na=False)
+    eva_metrics = {}
+
+    for t in ENTITY_TYPES:
+        eva_metrics[f"{t}_COR"]=0
+        eva_metrics[f"{t}_POS"]=0
+        eva_metrics[f"{t}_ACT"]=0
+
+    unmatched_sentences = set()
+    for index,row in df.iterrows():
+        for t in ENTITY_TYPES:
+            act = str(row[f"{t}"]).split(",")
+            pos = str(row[f"{t}_revised"]).split(",")
+            cor = []
+
+            for one in pos:
+                if one in act:
+                    cor.append(one)
+                if len(pos) != len(cor) or len(act) != len(cor):
+                    unmatched_sentences.add(index)
+                eva_metrics[f'{t}_COR'] += len(cor)
+                eva_metrics[f'{t}_POS'] += len(cor)
+                eva_metrics[f'{t}_ACT'] += len(cor)
+
+    if save_fp_json:
+        json_list = []
+        logger.debug(f"Unmatched entities total {len(unmatched_sentences)}")
+
+        for s_idx in unmatched_sentences:
+
+            s_entities = []
+            s = df.loc[s_idx].at[col]
+            for tt in ENTITY_TYPES:
+
+                start = 0
+                et_list = str(df.loc[s_idx].at[f"{tt}_revised"])
+
+                if et_list != "":
+                    for entity in et_list.split(","):
+                        start = s.find(entity,start)
+                        s_entities.append({"start":start,"end":start+len(entity),"value":entity,"entity":tt})
+            json_list.append({"text":s,"intent":"na","entities":s_entities})
+
+        with open("./ner_fp.json","w+", encoding="utf-8") as f:
+            json.dump({"rasa_nlu_data":{"common_examples":json_list}},f,ensure_ascii=False)
+
+    total_cor = 0
+    total_pos = 0
+    total_act = 0
+    logger.info(f"Evaluation Metrics for {file}")
+
+    for t in ENTITY_TYPES:
+        cor = eva_metrics[f"{t}_COR"]
+        pos = eva_metrics[f"{t}_POS"]
+        act = eva_metrics[f"{t}_ACT"]
+
+        total_cor += cor
+        total_pos += pos
+        total_act += act
+        precision = cor/act
+        recall = cor/pos
+        logger.info(f"{t}:Precision={precision: .3f},Recall={recall: .3f},F1 score={2*precision*recall/(precision+recall):.3f}")
+
+    total_precision = total_cor/total_act
+    total_recall = total_cor/total_pos
+    logger.info(f"Total:Precision={total_precision: .3f}, Recall={total_recall: .3f}, "
+                f"F1 score = {2*total_precision*total_recall/(total_precision+total_recall): .3f}")
+
+
+
+
+
+
+
+
+
 
 
