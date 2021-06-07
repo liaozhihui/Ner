@@ -64,8 +64,8 @@ def __get_entities_from_tags(sentence, tags,ix_to_tag,word_to_ix, max_sequence_l
     return entities
 
 def running_device(device=None):
-    return device if device else torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    # return "cpu"
+    # return device if device else torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    return "cpu"
 def save_model(model,word_to_ix,tag_to_ix, save_path = "./model/ner_model.pt"):
 
     torch.save(model.state_dict(),save_path)
