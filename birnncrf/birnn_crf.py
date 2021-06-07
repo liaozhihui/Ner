@@ -1,6 +1,6 @@
 import torch.nn as nn
 from torch.nn.utils.rnn import pack_padded_sequence,pad_packed_sequence
-from mycrf import crf
+from .mycrf import crf
 
 
 class BiLSTMCRF(nn.Module):
@@ -11,7 +11,7 @@ class BiLSTMCRF(nn.Module):
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
         self.vocab_size = vocab_size
-        self.target_size = tagset_size
+        self.tagset_size = tagset_size
 
         self.embedding = nn.Embedding(vocab_size,embedding_dim)
         RNN = nn.LSTM if rnn=='lstm' else nn.GRU
@@ -22,11 +22,11 @@ class BiLSTMCRF(nn.Module):
     def __build_features(self,sentences):
         masks = sentences.gt(0)
         embeds = self.embedding(sentences.long())
-        seq_length = masks.sum()
+        seq_length = masks.sum(1)
         sorted_seq_length, perm_idx = seq_length.sort(descending=True)
         embeds = embeds[perm_idx,:]
 
-        pack_sequence = pack_padded_sequence(embeds,lengths=sorted_seq_length,batch_first=True)
+        pack_sequence = pack_padded_sequence(embeds,lengths=sorted_seq_length.cpu(),batch_first=True)
         packed_out, _ = self.rnn(pack_sequence)
         lstm_out, _ = pad_packed_sequence(packed_out,batch_first=True)
         _, unperm_idx = perm_idx.sort()

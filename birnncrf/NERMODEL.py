@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import torch.optim as optim
 from torch.utils.data import TensorDataset,DataLoader
-import birnn_crf
+from . import birnn_crf
 import logging
 from tqdm import tqdm
 import pickle
@@ -15,16 +15,17 @@ logger = logging.getLogger(__name__)
 PAD = "<PAD>"
 OOV = "<OOV>"
 PAD_VOCAB_IDX = 0
-EMBEDDING_DIM = 100
-HIDDEN_DIM = 30
-ENTITY_TYPES = ["TIME","TIMESLOT","PRD"]
+EMBEDDING_DIM = 128
+HIDDEN_DIM = 32
+ENTITY_TYPES = ['DIS', 'SYM', 'SGN', 'TES', 'DRU', 'SUR', 'PRE', 'PT', 'Dur', 'TP', 'REG', 'ORG', 'AT', 'PSB', 'DEG', 'FW',
+                'CL']
 
 
 def __eval_model(model,device,dataloader):
     model.eval()
     with torch.no_grad():
          losses, nums = zip(*[(model.loss(xb.to(device),yb.to(device)),len(xb)) for xb,yb in dataloader])
-    return np.sum(np.multiply(losses,nums)).np.sum(nums)
+    return np.sum(np.multiply(losses,nums))/np.sum(nums)
 
 
 def __save_loss(losses,file_path):
@@ -64,8 +65,8 @@ def __get_entities_from_tags(sentence, tags,ix_to_tag,word_to_ix, max_sequence_l
 
 def running_device(device=None):
     return device if device else torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-def save_model(model,word_to_ix,tag_to_ix, save_path = "../model/ner_model.pt"):
+    # return "cpu"
+def save_model(model,word_to_ix,tag_to_ix, save_path = "./model/ner_model.pt"):
 
     torch.save(model.state_dict(),save_path)
     embedding_file = save_path.replace(".pt","_embedding.pkl")
@@ -110,11 +111,11 @@ def load_model(model_file,embedding_dim,hidden_dim,device=None):
 
 
 def preprocess_corpus(corpus,vocab_dict,max_length=0):
-    df = pd.read_csv(corpus,index_col=0)
+    df = pd.read_csv(corpus, index_col=0)
     df = df.sample(frac=1)
     logger.debug("shuffle training corpus")
     OOV_IDX = len(vocab_dict)-1
-    logger.debug(f"load training data from {corpus}, size={df.shape[0]}")
+    logger.debug(f"load training model_data from {corpus}, size={df.shape[0]}")
     sentences_embeddings = []
     tags_vec = []
     tag_dict = {PAD:0}
@@ -150,7 +151,7 @@ def load_vocab_list(vocab_list):
 
 
 def train(corpus, vocab_dict="./vocab_dict.json",val_split=0.05, test_split = 0.01, embedding_dim = EMBEDDING_DIM,
-          hidden_dim = HIDDEN_DIM, max_sequence_length = 100, lr=1e-3, weight_decay=0,epochs=200,batch_size=500,device=None):
+          hidden_dim = HIDDEN_DIM, max_sequence_length = 100, lr=1e-3, weight_decay=0,epochs=200,batch_size=2,device=None):
 
     logger.debug(f'start to train bilstm_crf')
     vocab_dict = load_vocab_list(vocab_dict)
@@ -177,6 +178,7 @@ def train(corpus, vocab_dict="./vocab_dict.json",val_split=0.05, test_split = 0.
     losses = []
     optimizer = optim.Adam(model.parameters(),lr=lr, weight_decay=weight_decay)
     device = running_device(device)
+    model.to(device)
     logger.debug(f"running on {device}")
 
     best_val_loss = 1e4
@@ -185,8 +187,7 @@ def train(corpus, vocab_dict="./vocab_dict.json",val_split=0.05, test_split = 0.
     for epoch in bar:
         model.train()
         for bi,(xb,yb) in enumerate(train_dl):
-            model.zero_grad()
-
+            optimizer.zero_grad()
             loss = model.loss(xb.to(device),yb.to(device))
             loss.backward()
             optimizer.step()
@@ -197,7 +198,7 @@ def train(corpus, vocab_dict="./vocab_dict.json",val_split=0.05, test_split = 0.
 
         losses[-1][-1] = val_loss
 
-        bar.set_description_str("{:2d}/{},val_loss:{:5.2f".format(epoch+1,epochs,val_loss))
+        bar.set_description_str("{:2d}/{},val_loss:{:5.2f}".format(epoch+1,epochs,val_loss))
 
         if val_loss<best_val_loss:
             best_val_loss = val_loss
@@ -233,7 +234,7 @@ def predict(model,sentences, embedding_dim=EMBEDDING_DIM,hidden_dim=HIDDEN_DIM,m
     return res
 
 
-def predict_on_excel(file,col,model="../data/ner_model.pt",format_entities = False):
+def predict_on_excel(file,col,model="../model_data/ner_model.pt",format_entities = False):
     df = pd.read_excel(file,dtype={col:str})
     df = df.dropna(subset=[col]).drop_duplicates([col])
     sentences = df[col].to_list()
