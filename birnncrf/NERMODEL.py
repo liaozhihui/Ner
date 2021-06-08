@@ -25,6 +25,7 @@ def __eval_model(model,device,dataloader):
     model.eval()
     with torch.no_grad():
          losses, nums = zip(*[(model.loss(xb.to(device),yb.to(device)),len(xb)) for xb,yb in dataloader])
+
     return np.sum(np.multiply(losses,nums))/np.sum(nums)
 
 
@@ -64,8 +65,8 @@ def __get_entities_from_tags(sentence, tags,ix_to_tag,word_to_ix, max_sequence_l
     return entities
 
 def running_device(device=None):
-    # return device if device else torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    return "cpu"
+    return device if device else torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    # return "cpu"
 def save_model(model,word_to_ix,tag_to_ix, save_path = "./model/ner_model.pt"):
 
     torch.save(model.state_dict(),save_path)
@@ -180,6 +181,7 @@ def train(corpus, vocab_dict="./vocab_dict.json",val_split=0.05, test_split = 0.
     device = running_device(device)
     model.to(device)
     logger.debug(f"running on {device}")
+    print(f"running on {device}")
 
     best_val_loss = 1e4
     bar = tqdm(range(epochs))
